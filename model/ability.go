@@ -19,6 +19,7 @@ type Ability struct {
 	Group     string  `json:"group" gorm:"type:varchar(64);primaryKey;autoIncrement:false"`
 	Model     string  `json:"model" gorm:"type:varchar(255);primaryKey;autoIncrement:false"`
 	ChannelId int     `json:"channel_id" gorm:"primaryKey;autoIncrement:false;index"`
+	TenantId  int     `json:"tenant_id" gorm:"type:int;default:0;index"` // denormalized from owning Channel.TenantId
 	Enabled   bool    `json:"enabled"`
 	Priority  *int64  `json:"priority" gorm:"bigint;default:0;index"`
 	Weight    uint    `json:"weight" gorm:"default:0;index"`
@@ -30,20 +31,24 @@ type AbilityWithChannel struct {
 	ChannelType int `json:"channel_type"`
 }
 
-func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
+// GetAllEnableAbilityWithChannels lists enabled abilities usable by tenantId
+// (shared abilities, tenant_id=0, plus the given tenant's own). Pass 0 for
+// context-free/anonymous callers (e.g. the global public pricing cache),
+// which correctly restricts them to shared-only.
+func GetAllEnableAbilityWithChannels(tenantId int) ([]AbilityWithChannel, error) {
 	var abilities []AbilityWithChannel
 	err := DB.Table("abilities").
 		Select("abilities.*, channels.type as channel_type").
 		Joins("left join channels on abilities.channel_id = channels.id").
-		Where("abilities.enabled = ?", true).
+		Where("abilities.enabled = ? and (abilities.tenant_id = 0 or abilities.tenant_id = ?)", true, tenantId).
 		Scan(&abilities).Error
 	return abilities, err
 }
 
-func GetGroupEnabledModels(group string) []string {
+func GetGroupEnabledModels(group string, tenantId int) []string {
 	var models []string
 	// Find distinct models
-	DB.Table("abilities").Where(commonGroupCol+" = ? and enabled = ?", group, true).Distinct("model").Pluck("model", &models)
+	DB.Table("abilities").Where(commonGroupCol+" = ? and enabled = ? and (tenant_id = 0 or tenant_id = ?)", group, true, tenantId).Distinct("model").Pluck("model", &models)
 	return models
 }
 
@@ -60,12 +65,12 @@ func GetAllEnableAbilities() []Ability {
 	return abilities
 }
 
-func getPriority(group string, model string, retry int) (int, error) {
+func getPriority(group string, model string, retry int, tenantId int) (int, error) {
 
 	var priorities []int
 	err := DB.Model(&Ability{}).
 		Select("DISTINCT(priority)").
-		Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
+		Where(commonGroupCol+" = ? and model = ? and enabled = ? and (tenant_id = 0 or tenant_id = ?)", group, model, true, tenantId).
 		Order("priority DESC").              // 按优先级降序排序
 		Pluck("priority", &priorities).Error // Pluck用于将查询的结果直接扫描到一个切片中
 
@@ -90,26 +95,26 @@ func getPriority(group string, model string, retry int) (int, error) {
 	return priorityToUse, nil
 }
 
-func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
-	maxPrioritySubQuery := DB.Model(&Ability{}).Select("MAX(priority)").Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true)
-	channelQuery := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = (?)", group, model, true, maxPrioritySubQuery)
+func getChannelQuery(group string, model string, retry int, tenantId int) (*gorm.DB, error) {
+	maxPrioritySubQuery := DB.Model(&Ability{}).Select("MAX(priority)").Where(commonGroupCol+" = ? and model = ? and enabled = ? and (tenant_id = 0 or tenant_id = ?)", group, model, true, tenantId)
+	channelQuery := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and (tenant_id = 0 or tenant_id = ?) and priority = (?)", group, model, true, tenantId, maxPrioritySubQuery)
 	if retry != 0 {
-		priority, err := getPriority(group, model, retry)
+		priority, err := getPriority(group, model, retry, tenantId)
 		if err != nil {
 			return nil, err
 		} else {
-			channelQuery = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = ?", group, model, true, priority)
+			channelQuery = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and (tenant_id = 0 or tenant_id = ?) and priority = ?", group, model, true, tenantId, priority)
 		}
 	}
 
 	return channelQuery, nil
 }
 
-func GetChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
+func GetChannel(group string, model string, retry int, requestPath string, tenantId int) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
-	channelQuery, err := getChannelQuery(group, model, retry)
+	channelQuery, err := getChannelQuery(group, model, retry, tenantId)
 	if err != nil {
 		return nil, err
 	}
@@ -209,6 +214,7 @@ func (channel *Channel) AddAbilities(tx *gorm.DB) error {
 				Group:     group,
 				Model:     model,
 				ChannelId: channel.Id,
+				TenantId:  channel.TenantId,
 				Enabled:   channel.Status == common.ChannelStatusEnabled,
 				Priority:  channel.Priority,
 				Weight:    uint(channel.GetWeight()),
@@ -281,6 +287,7 @@ func (channel *Channel) UpdateAbilities(tx *gorm.DB) error {
 				Group:     group,
 				Model:     model,
 				ChannelId: channel.Id,
+				TenantId:  channel.TenantId,
 				Enabled:   channel.Status == common.ChannelStatusEnabled,
 				Priority:  channel.Priority,
 				Weight:    uint(channel.GetWeight()),

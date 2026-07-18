@@ -318,6 +318,15 @@ func SetApiRouter(router *gin.Engine) {
 			prefillGroupRoute.DELETE("/:id", controller.DeletePrefillGroup)
 		}
 
+		tenantRoute := apiRouter.Group("/tenant")
+		tenantRoute.Use(middleware.RootAuth())
+		{
+			tenantRoute.GET("/", controller.GetTenants)
+			tenantRoute.POST("/", controller.CreateTenant)
+			tenantRoute.PUT("/", controller.UpdateTenant)
+			tenantRoute.DELETE("/:id", controller.DeleteTenant)
+		}
+
 		mjRoute := apiRouter.Group("/mj")
 		mjRoute.GET("/self", middleware.UserAuth(), controller.GetUserMidjourney)
 		mjRoute.GET("/", middleware.AdminAuth(), controller.GetAllMidjourney)

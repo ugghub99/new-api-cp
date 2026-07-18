@@ -125,6 +125,8 @@ import { getLobeIcon } from '@/lib/lobe-icon'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
+import { getTenants } from '@/features/tenants/api'
+import { TENANT_STATUS_ENABLED } from '@/features/tenants/types'
 
 import {
   fetchModels,
@@ -612,6 +614,7 @@ export function ChannelMutateDrawer({
     ADMIN_PERMISSION_ACTIONS.SENSITIVE_WRITE
   )
   const canRevealChannelKey = currentUser?.role === ROLE.SUPER_ADMIN
+  const isRoot = currentUser?.role === ROLE.SUPER_ADMIN
   const [fetchModelsDialogOpen, setFetchModelsDialogOpen] = useState(false)
   const [channelKey, setChannelKey] = useState<string | null>(null)
   const [isChannelKeyLoading, setIsChannelKeyLoading] = useState(false)
@@ -663,6 +666,17 @@ export function ChannelMutateDrawer({
     queryKey: ['groups'],
     queryFn: getGroups,
   })
+
+  // Tenant assignment is Root-only: a tenant-scoped Admin's channels are
+  // force-assigned to their own tenant server-side regardless of this field.
+  const { data: tenantsData } = useQuery({
+    queryKey: ['tenants'],
+    queryFn: () => getTenants({ page_size: 100 }),
+    enabled: isRoot,
+  })
+  const tenantOptions = (tenantsData?.data?.items ?? []).filter(
+    (tenant) => tenant.status === TENANT_STATUS_ENABLED
+  )
 
   // Fetch all available models
   const { data: allModelsData } = useQuery({
@@ -3578,6 +3592,73 @@ export function ChannelMutateDrawer({
                               )}
                             />
                           </div>
+
+                          {isRoot ? (
+                            <div className='border-border/60 rounded-lg border p-4'>
+                              <FormField
+                                control={form.control}
+                                name='tenant_id'
+                                render={({ field }) => (
+                                  <FormItem className='space-y-3'>
+                                    <div className='space-y-1'>
+                                      <FormLabel>{t('Tenant')}</FormLabel>
+                                      <FormDescription>
+                                        {t(
+                                          'Shared channels are usable by every tenant. A private channel is usable only by the tenant it is assigned to.'
+                                        )}
+                                      </FormDescription>
+                                    </div>
+                                    <Select
+                                      items={[
+                                        { value: '0', label: t('Shared / Global') },
+                                        ...tenantOptions.map((tenant) => ({
+                                          value: String(tenant.id),
+                                          label: tenant.name,
+                                        })),
+                                      ]}
+                                      onValueChange={(value) =>
+                                        value !== null &&
+                                        field.onChange(parseInt(value))
+                                      }
+                                      value={String(field.value ?? 0)}
+                                    >
+                                      <FormControl>
+                                        <SelectTrigger>
+                                          <SelectValue
+                                            placeholder={t('Select a tenant')}
+                                          />
+                                        </SelectTrigger>
+                                      </FormControl>
+                                      <SelectContent alignItemWithTrigger={false}>
+                                        <SelectGroup>
+                                          <SelectItem value='0'>
+                                            {t('Shared / Global')}
+                                          </SelectItem>
+                                          {tenantOptions.map((tenant) => (
+                                            <SelectItem
+                                              key={tenant.id}
+                                              value={String(tenant.id)}
+                                            >
+                                              {tenant.name}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectGroup>
+                                      </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+                          ) : (
+                            isEditing && (
+                              <p className='text-muted-foreground text-xs'>
+                                {t(
+                                  'This channel belongs to your tenant (or is shared). Only Root can move it between tenants.'
+                                )}
+                              </p>
+                            )
+                          )}
                         </div>
                       </ChannelModelsSection>
                     </div>

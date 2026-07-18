@@ -40,6 +40,7 @@ func authHelper(c *gin.Context, minRole int) {
 	role := session.Get("role")
 	id := session.Get("id")
 	status := session.Get("status")
+	tenantId := session.Get("tenant_id")
 	useAccessToken := false
 	if username == nil {
 		// Check access token
@@ -83,6 +84,7 @@ func authHelper(c *gin.Context, minRole int) {
 			role = user.Role
 			id = user.Id
 			status = user.Status
+			tenantId = user.TenantId
 			useAccessToken = true
 		} else {
 			c.JSON(http.StatusOK, gin.H{
@@ -152,6 +154,9 @@ func authHelper(c *gin.Context, minRole int) {
 	c.Set("id", id)
 	c.Set("group", session.Get("group"))
 	c.Set("user_group", session.Get("group"))
+	if tenantId != nil {
+		c.Set("tenant_id", tenantId)
+	}
 	c.Set("use_access_token", useAccessToken)
 
 	// 管理/root 写操作审计兜底：内聚在鉴权链路里，保证任何经过 AdminAuth/RootAuth
@@ -194,6 +199,31 @@ func RootAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleRootUser)
 	}
+}
+
+// EffectiveTenantId is the single source of truth for "which tenant is this
+// request acting as". Session/dashboard requests set the "tenant_id" gin key
+// in authHelper; token-based relay requests set ContextKeyUserTenantId via
+// UserBase.WriteContext. 0 means shared/no tenant.
+func EffectiveTenantId(c *gin.Context) int {
+	if _, ok := c.Get("tenant_id"); ok {
+		return c.GetInt("tenant_id")
+	}
+	return common.GetContextKeyInt(c, constant.ContextKeyUserTenantId)
+}
+
+// AssertSameTenant reports whether the acting user (from EffectiveTenantId)
+// may act on a resource owned by resourceTenantId. RoleRootUser is always
+// cross-tenant. allowShared additionally permits resourceTenantId == 0
+// (shared/global resources, e.g. shared channels) for tenant-scoped admins.
+func AssertSameTenant(c *gin.Context, resourceTenantId int, allowShared bool) bool {
+	if c.GetInt("role") >= common.RoleRootUser {
+		return true
+	}
+	if resourceTenantId == EffectiveTenantId(c) {
+		return true
+	}
+	return allowShared && resourceTenantId == 0
 }
 
 func RequirePermission(permission authz.Permission) func(c *gin.Context) {

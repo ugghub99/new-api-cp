@@ -839,6 +839,10 @@ func TestChannel(c *gin.Context) {
 			return
 		}
 	}
+	if !middleware.AssertSameTenant(c, channel.TenantId, true) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "无权访问该渠道"})
+		return
+	}
 	//defer func() {
 	//	if channel.ChannelInfo.IsMultiKey {
 	//		go func() { _ = channel.SaveChannelInfo() }()

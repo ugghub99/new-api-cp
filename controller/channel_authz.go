@@ -33,6 +33,9 @@ func channelHasSensitiveChanges(channel *PatchChannel, origin *model.Channel, re
 	if _, ok := requestData["key_mode"]; ok && channel.KeyMode != nil {
 		return true
 	}
+	if _, ok := requestData["tenant_id"]; ok && channel.TenantId != origin.TenantId {
+		return true
+	}
 	// Fail closed: any field present in the request that is neither a known
 	// sensitive field (gated above) nor an explicitly classified non-sensitive
 	// field must be treated as sensitive. This keeps a newly added channel field
@@ -71,6 +74,11 @@ var channelSensitiveFields = map[string]struct{}{
 	"other":               {},
 	"settings":            {},
 	"key_mode":            {},
+	// tenant_id controls which tenant owns/can reach this channel; treated as
+	// sensitive here (requires ChannelSensitiveWrite), and further restricted
+	// to Root-only (or force-assigned to the caller's own tenant) at the
+	// controller layer regardless of this permission — see AssertSameTenant.
+	"tenant_id": {},
 }
 
 // channelOperationalFields lists fields managed by operation endpoints instead

@@ -38,6 +38,7 @@ type Channel struct {
 	BalanceUpdatedTime int64   `json:"balance_updated_time" gorm:"bigint"`
 	Models             string  `json:"models"`
 	Group              string  `json:"group" gorm:"type:varchar(64);default:'default'"`
+	TenantId           int     `json:"tenant_id" gorm:"type:int;default:0;index"` // 0 = shared/global channel
 	UsedQuota          int64   `json:"used_quota" gorm:"bigint;default:0"`
 	ModelMapping       *string `json:"model_mapping" gorm:"type:text"`
 	//MaxInputTokens     *int    `json:"max_input_tokens" gorm:"default:0"`
@@ -159,6 +160,16 @@ func ApplyChannelGroupFilter(query *gorm.DB, group string) *gorm.DB {
 		return query
 	}
 	return query.Where(channelGroupFilterCondition(), channelGroupFilterPattern(group))
+}
+
+// ApplyChannelTenantFilter restricts a channel list query to shared channels
+// (tenant_id=0) plus the given tenant's own. tenantId nil means no filter
+// (Root viewing all tenants' channels).
+func ApplyChannelTenantFilter(query *gorm.DB, tenantId *int) *gorm.DB {
+	if tenantId == nil {
+		return query
+	}
+	return query.Where("tenant_id = 0 OR tenant_id = ?", *tenantId)
 }
 
 // Value implements driver.Valuer interface
@@ -376,7 +387,7 @@ func GetChannelsByTag(tag string, idSort bool, selectAll bool, sortOptions ...Ch
 	return channels, err
 }
 
-func SearchChannels(keyword string, group string, model string, idSort bool, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
+func SearchChannels(keyword string, group string, model string, idSort bool, tenantId *int, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
 	var channels []*Channel
 	modelsCol := "`models`"
 
@@ -399,7 +410,7 @@ func SearchChannels(keyword string, group string, model string, idSort bool, sor
 	// 构造WHERE子句
 	whereClause := "(id = ? OR name LIKE ? OR " + commonKeyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"
 	args := []any{common.String2Int(keyword), "%" + keyword + "%", keyword, "%" + keyword + "%", "%" + model + "%"}
-	baseQuery = ApplyChannelGroupFilter(baseQuery.Where(whereClause, args...), group)
+	baseQuery = ApplyChannelTenantFilter(ApplyChannelGroupFilter(baseQuery.Where(whereClause, args...), group), tenantId)
 
 	// 执行查询
 	err := order.Apply(baseQuery).Find(&channels).Error
@@ -893,7 +904,7 @@ func GetPaginatedChannelTags(query *gorm.DB, offset int, limit int) ([]*string, 
 	return tags, err
 }
 
-func SearchTags(keyword string, group string, model string, idSort bool) ([]*string, error) {
+func SearchTags(keyword string, group string, model string, idSort bool, tenantId *int) ([]*string, error) {
 	var tags []*string
 	modelsCol := "`models`"
 
@@ -919,7 +930,7 @@ func SearchTags(keyword string, group string, model string, idSort bool) ([]*str
 	// 构造WHERE子句
 	whereClause := "(id = ? OR name LIKE ? OR " + commonKeyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"
 	args := []any{common.String2Int(keyword), "%" + keyword + "%", keyword, "%" + keyword + "%", "%" + model + "%"}
-	baseQuery = ApplyChannelGroupFilter(baseQuery.Where(whereClause, args...), group)
+	baseQuery = ApplyChannelTenantFilter(ApplyChannelGroupFilter(baseQuery.Where(whereClause, args...), group), tenantId)
 
 	subQuery := baseQuery.
 		Select("tag").

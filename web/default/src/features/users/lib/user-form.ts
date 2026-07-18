@@ -40,6 +40,7 @@ export const userFormSchema = z.object({
   role: z.number().optional(),
   quota_dollars: z.number().min(0).optional(),
   group: z.string().optional(),
+  tenant_id: z.number().optional(),
   remark: z.string().optional(),
   admin_permissions: z
     .record(z.string(), z.record(z.string(), z.boolean()))
@@ -59,6 +60,7 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   role: 1, // Default to common user
   quota_dollars: 0,
   group: DEFAULT_GROUP,
+  tenant_id: undefined,
   remark: '',
   // Filled against the backend catalog at render time; see UsersMutateDrawer.
   admin_permissions: {},
@@ -104,6 +106,13 @@ export function transformFormDataToPayload(
     payload.id = userId
   }
 
+  // tenant_id: only Root ever sees/edits this field (gated in the drawer UI);
+  // for everyone else data.tenant_id stays undefined and is omitted here, so
+  // the backend's own force-assignment/no-op-if-unchanged logic always wins.
+  if (data.tenant_id !== undefined) {
+    payload.tenant_id = data.tenant_id
+  }
+
   return payload
 }
 
@@ -120,6 +129,7 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     role: user.role,
     quota_dollars: quotaUnitsToDollars(user.quota),
     group: user.group || DEFAULT_GROUP,
+    tenant_id: user.tenant_id,
     remark: user.remark || '',
     admin_permissions: user.admin_permissions ?? {},
   }

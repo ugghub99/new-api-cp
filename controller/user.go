@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
@@ -143,6 +144,7 @@ func setupLogin(user *model.User, c *gin.Context) {
 	session.Set("role", user.Role)
 	session.Set("status", user.Status)
 	session.Set("group", user.Group)
+	session.Set("tenant_id", user.TenantId)
 	err := session.Save()
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgUserSessionSaveFailed)
@@ -159,6 +161,7 @@ func setupLogin(user *model.User, c *gin.Context) {
 			"role":         user.Role,
 			"status":       user.Status,
 			"group":        user.Group,
+			"tenant_id":    user.TenantId,
 		},
 	})
 }
@@ -300,9 +303,26 @@ func Register(c *gin.Context) {
 	return
 }
 
+// resolveTenantFilter returns the tenant_id filter to apply for an
+// admin-facing list query. Tenant-scoped Admins are always forced to their
+// own tenant; Root may pass ?tenant_id= to filter, or omit it to see all
+// tenants (nil = no filter).
+func resolveTenantFilter(c *gin.Context) *int {
+	if c.GetInt("role") >= common.RoleRootUser {
+		if raw := c.Query("tenant_id"); raw != "" {
+			if parsed, err := strconv.Atoi(raw); err == nil {
+				return &parsed
+			}
+		}
+		return nil
+	}
+	tenantId := middleware.EffectiveTenantId(c)
+	return &tenantId
+}
+
 func GetAllUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
-	users, total, err := model.GetAllUsers(pageInfo)
+	users, total, err := model.GetAllUsers(pageInfo, resolveTenantFilter(c))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -331,7 +351,7 @@ func SearchUsers(c *gin.Context) {
 		}
 	}
 	pageInfo := common.GetPageQuery(c)
-	users, total, err := model.SearchUsers(keyword, group, role, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	users, total, err := model.SearchUsers(keyword, group, role, status, resolveTenantFilter(c), pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -484,6 +504,7 @@ func GetSelf(c *gin.Context) {
 		"username":          user.Username,
 		"display_name":      user.DisplayName,
 		"role":              user.Role,
+		"tenant_id":         user.TenantId,
 		"status":            user.Status,
 		"email":             user.Email,
 		"github_id":         user.GitHubId,
@@ -630,14 +651,14 @@ func GetUserModels(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"message": "",
-			"data":    model.GetGroupEnabledModels(group),
+			"data":    model.GetGroupEnabledModels(group, middleware.EffectiveTenantId(c)),
 		})
 		return
 	}
 
 	var models []string
 	for group := range groups {
-		for _, g := range model.GetGroupEnabledModels(group) {
+		for _, g := range model.GetGroupEnabledModels(group, middleware.EffectiveTenantId(c)) {
 			if !common.StringsContains(models, g) {
 				models = append(models, g)
 			}
@@ -652,12 +673,22 @@ func GetUserModels(c *gin.Context) {
 }
 
 func UpdateUser(c *gin.Context) {
-	var updatedUser model.User
-	err := json.NewDecoder(c.Request.Body).Decode(&updatedUser)
-	if err != nil || updatedUser.Id == 0 {
+	rawBody, err := c.GetRawData()
+	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
+	var updatedUser model.User
+	if err := common.Unmarshal(rawBody, &updatedUser); err != nil || updatedUser.Id == 0 {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	// tenant_id reassignment is root-only (see updateUserTenantForUserInTx below);
+	// detect whether the client actually sent the field, since the zero value is
+	// indistinguishable from "not provided" once bound onto model.User.
+	var requestData map[string]any
+	_ = common.Unmarshal(rawBody, &requestData)
+	_, tenantIdProvided := requestData["tenant_id"]
 	updatedUser.Username = strings.TrimSpace(updatedUser.Username)
 	if updatedUser.Username == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
@@ -688,6 +719,11 @@ func UpdateUser(c *gin.Context) {
 	if updatedUser.Password == "$I_LOVE_U" {
 		updatedUser.Password = "" // rollback to what it should be
 	}
+	// Captured before EditWithTx runs: EditWithTx's trailing refetch
+	// (tx.First(user, user.Id)) overwrites *updatedUser from the DB, which
+	// would clobber the client-requested tenant_id back to its pre-update
+	// value before updateUserTenantForUserInTx ever reads it.
+	requestedTenantId := updatedUser.TenantId
 	updatePassword := updatedUser.Password != ""
 	authzTouched := false
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
@@ -696,7 +732,13 @@ func UpdateUser(c *gin.Context) {
 		}
 		touched, err := updateAdminPermissionsForUserInTx(c, tx, updatedUser.Id, originUser.Role, updatedUser.AdminPermissions)
 		authzTouched = touched
-		return err
+		if err != nil {
+			return err
+		}
+		if tenantIdProvided {
+			return updateUserTenantForUserInTx(c, tx, updatedUser.Id, originUser.TenantId, requestedTenantId)
+		}
+		return nil
 	}); err != nil {
 		common.ApiError(c, err)
 		return
@@ -973,11 +1015,19 @@ func CreateUser(c *gin.Context) {
 		return
 	}
 	// Even for admin users, we cannot fully trust them!
+	// tenant_id: Root may assign any tenant (including 0/shared); a
+	// tenant-scoped Admin is always force-assigned their own tenant,
+	// regardless of what the request body claims.
+	tenantId := user.TenantId
+	if myRole < common.RoleRootUser {
+		tenantId = middleware.EffectiveTenantId(c)
+	}
 	cleanUser := model.User{
 		Username:    user.Username,
 		Password:    user.Password,
 		DisplayName: user.DisplayName,
 		Role:        user.Role, // 保持管理员设置的角色
+		TenantId:    tenantId,
 	}
 	authzTouched := false
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
@@ -1024,6 +1074,20 @@ func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, 
 		return true, authz.ClearUserAuthorizationInTx(tx, userID)
 	}
 	return true, authz.SetUserPermissionsInTx(tx, userID, permissions)
+}
+
+// updateUserTenantForUserInTx reassigns a user's tenant. Only RoleRootUser may
+// actually change it; a tenant-scoped Admin resubmitting the same (unchanged)
+// value is a no-op, not an error, so forms that always serialize tenant_id
+// don't break for non-root callers who can't see/edit the field.
+func updateUserTenantForUserInTx(c *gin.Context, tx *gorm.DB, userID int, currentTenantId int, newTenantId int) error {
+	if newTenantId == currentTenantId {
+		return nil
+	}
+	if c.GetInt("role") < common.RoleRootUser {
+		return fmt.Errorf("only root can reassign a user's tenant")
+	}
+	return tx.Model(&model.User{}).Where("id = ?", userID).Update("tenant_id", newTenantId).Error
 }
 
 type ManageRequest struct {

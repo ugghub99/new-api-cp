@@ -74,6 +74,9 @@ import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { getTenants } from '@/features/tenants/api'
+import { TENANT_STATUS_ENABLED } from '@/features/tenants/types'
+
 import {
   createUser,
   updateUser,
@@ -119,6 +122,19 @@ export function UsersMutateDrawer({
   })
 
   const groups = groupsData?.data || []
+
+  const isRoot = currentUser?.role === ROLE.SUPER_ADMIN
+
+  // Tenant assignment is Root-only: tenant-scoped Admins have their created
+  // users silently force-assigned to their own tenant server-side, so they
+  // never need/see this field.
+  const { data: tenantsData } = useQuery({
+    queryKey: ['tenants'],
+    queryFn: () => getTenants({ page_size: 100 }),
+    staleTime: 5 * 60 * 1000,
+    enabled: isRoot,
+  })
+  const tenants = tenantsData?.data?.items ?? []
 
   // Permission catalog is owned by the backend; fetched once and reused.
   const { data: permissionCatalog = EMPTY_PERMISSION_CATALOG } = useQuery({
@@ -298,6 +314,61 @@ export function UsersMutateDrawer({
                         </Select>
                         <FormDescription>
                           {t("Set the user's role (cannot be Root)")}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                {isRoot && (
+                  <FormField
+                    control={form.control}
+                    name='tenant_id'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Tenant')}</FormLabel>
+                        <Select
+                          items={[
+                            { value: '0', label: t('Shared / Global') },
+                            ...tenants
+                              .filter(
+                                (tenant) => tenant.status === TENANT_STATUS_ENABLED
+                              )
+                              .map((tenant) => ({
+                                value: String(tenant.id),
+                                label: tenant.name,
+                              })),
+                          ]}
+                          onValueChange={(value) =>
+                            value !== null && field.onChange(parseInt(value))
+                          }
+                          value={String(field.value ?? 0)}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder={t('Select a tenant')} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              <SelectItem value='0'>
+                                {t('Shared / Global')}
+                              </SelectItem>
+                              {tenants
+                                .filter(
+                                  (tenant) => tenant.status === TENANT_STATUS_ENABLED
+                                )
+                                .map((tenant) => (
+                                  <SelectItem key={tenant.id} value={String(tenant.id)}>
+                                    {tenant.name}
+                                  </SelectItem>
+                                ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          {t('Root only: assign this user to a tenant')}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

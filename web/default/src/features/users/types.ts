@@ -46,6 +46,7 @@ export const userSchema = z.object({
   used_quota: z.number(),
   request_count: z.number(),
   group: z.string(),
+  tenant_id: z.number().optional(),
   aff_code: z.string().optional(),
   aff_count: z.number().optional(),
   aff_quota: z.number().optional(),
@@ -111,6 +112,7 @@ export interface UserFormData {
   quota?: number // Only used when updating user
   group?: string // Only used when updating user
   remark?: string // Only used when updating user
+  tenant_id?: number // Root-only: assigns/reassigns the user's tenant
   admin_permissions?: AdminPermissionMatrix
 }
 

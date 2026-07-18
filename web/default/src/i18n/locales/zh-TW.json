@@ -5178,6 +5178,27 @@
     "Zero retention": "零數據保留",
     "Zhipu": "智譜",
     "Zhipu V4": "智譜 V4",
-    "Zoom": "縮放"
+    "Zoom": "縮放",
+    "Tenant Management": "Tenant Management",
+    "Create Tenant": "Create Tenant",
+    "Edit Tenant": "Edit Tenant",
+    "Delete Tenant": "Delete Tenant",
+    "Tenant": "Tenant",
+    "Tenant ID": "Tenant ID",
+    "Shared / Global": "Shared / Global",
+    "Select a tenant": "Select a tenant",
+    "Select status": "Select status",
+    "Enter tenant name": "Enter tenant name",
+    "Optional remark": "Optional remark",
+    "Add a new tenant organization.": "Add a new tenant organization.",
+    "Update this tenant.": "Update this tenant.",
+    "Tenant updated successfully": "Tenant updated successfully",
+    "Tenant created successfully": "Tenant created successfully",
+    "Tenant deleted successfully": "Tenant deleted successfully",
+    "No tenants yet": "No tenants yet",
+    "Are you sure you want to delete \"{{name}}\"? This cannot be undone. Deletion is blocked while any user or channel still belongs to this tenant.": "Are you sure you want to delete \"{{name}}\"? This cannot be undone. Deletion is blocked while any user or channel still belongs to this tenant.",
+    "Root only: assign this user to a tenant": "Root only: assign this user to a tenant",
+    "Shared channels are usable by every tenant. A private channel is usable only by the tenant it is assigned to.": "Shared channels are usable by every tenant. A private channel is usable only by the tenant it is assigned to.",
+    "This channel belongs to your tenant (or is shared). Only Root can move it between tenants.": "This channel belongs to your tenant (or is shared). Only Root can move it between tenants."
   }
 }

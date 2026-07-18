@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relay/channel/ai360"
@@ -248,7 +249,7 @@ func ListModels(c *gin.Context, modelType int) {
 		var models []string
 		if groups.tokenGroup == "auto" {
 			for _, autoGroup := range ownerGroups {
-				groupModels := model.GetGroupEnabledModels(autoGroup)
+				groupModels := model.GetGroupEnabledModels(autoGroup, middleware.EffectiveTenantId(c))
 				for _, g := range groupModels {
 					if !common.StringsContains(models, g) {
 						models = append(models, g)
@@ -256,7 +257,7 @@ func ListModels(c *gin.Context, modelType int) {
 				}
 			}
 		} else {
-			models = model.GetGroupEnabledModels(ownerGroups[0])
+			models = model.GetGroupEnabledModels(ownerGroups[0], middleware.EffectiveTenantId(c))
 		}
 		for _, modelName := range models {
 			if !acceptUnsetRatioModel {

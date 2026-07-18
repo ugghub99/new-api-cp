@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,13 @@ func GetAllLogs(c *gin.Context) {
 	group := c.Query("group")
 	requestId := c.Query("request_id")
 	upstreamRequestId := c.Query("upstream_request_id")
-	logs, total, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), channel, group, requestId, upstreamRequestId)
+	// Tenant-scoped Admins are always forced to their own tenant; Root may
+	// optionally pass ?tenant_id= to filter, or omit it to see all tenants.
+	tenantId := middleware.EffectiveTenantId(c)
+	if c.GetInt("role") >= common.RoleRootUser {
+		tenantId, _ = strconv.Atoi(c.Query("tenant_id"))
+	}
+	logs, total, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), channel, group, requestId, upstreamRequestId, tenantId)
 	if err != nil {
 		common.ApiError(c, err)
 		return

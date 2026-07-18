@@ -184,6 +184,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		ModelName:   relayInfo.OriginModelName,
 		RequestPath: c.Request.URL.Path,
 		Retry:       common.GetPointer(0),
+		TenantId:    middleware.EffectiveTenantId(c),
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
@@ -513,6 +514,7 @@ func RelayTask(c *gin.Context) {
 		ModelName:   relayInfo.OriginModelName,
 		RequestPath: c.Request.URL.Path,
 		Retry:       common.GetPointer(0),
+		TenantId:    middleware.EffectiveTenantId(c),
 	}
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {

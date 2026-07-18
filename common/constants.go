@@ -206,6 +206,14 @@ const (
 	RoleRootUser   = 100
 )
 
+// TenantId = 0 is a reserved sentinel meaning "shared/global" (no tenant),
+// not a real Tenant row. It is the default for every existing/un-tenanted
+// user, channel, token, log, and ability.
+const (
+	TenantStatusEnabled  = 1
+	TenantStatusDisabled = 2
+)
+
 func IsValidateRole(role int) bool {
 	return role == RoleGuestUser || role == RoleCommonUser || role == RoleAdminUser || role == RoleRootUser
 }
