@@ -290,7 +290,10 @@ func GetMaxUserId() int {
 
 // tenantId nil means no filter (Root viewing all tenants); a non-nil value,
 // including *tenantId == 0, applies an exact-match filter.
-func GetAllUsers(pageInfo *common.PageInfo, tenantId *int) (users []*User, total int64, err error) {
+// viewerRole/viewerId restrict the result to accounts strictly below the
+// viewer's role, plus the viewer's own account; Root (viewerRole ==
+// common.RoleRootUser) is exempt and sees every account.
+func GetAllUsers(pageInfo *common.PageInfo, tenantId *int, viewerRole int, viewerId int) (users []*User, total int64, err error) {
 	// Start transaction
 	tx := DB.Begin()
 	if tx.Error != nil {
@@ -305,6 +308,9 @@ func GetAllUsers(pageInfo *common.PageInfo, tenantId *int) (users []*User, total
 	query := tx.Unscoped().Model(&User{})
 	if tenantId != nil {
 		query = query.Where("tenant_id = ?", *tenantId)
+	}
+	if viewerRole < common.RoleRootUser {
+		query = query.Where("role < ? OR id = ?", viewerRole, viewerId)
 	}
 
 	// Get total count within transaction
@@ -331,7 +337,10 @@ func GetAllUsers(pageInfo *common.PageInfo, tenantId *int) (users []*User, total
 
 // tenantId nil means no filter (Root viewing all tenants); a non-nil value,
 // including *tenantId == 0, applies an exact-match filter.
-func SearchUsers(keyword string, group string, role *int, status *int, tenantId *int, startIdx int, num int) ([]*User, int64, error) {
+// viewerRole/viewerId restrict the result to accounts strictly below the
+// viewer's role, plus the viewer's own account; Root (viewerRole ==
+// common.RoleRootUser) is exempt and sees every account.
+func SearchUsers(keyword string, group string, role *int, status *int, tenantId *int, startIdx int, num int, viewerRole int, viewerId int) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -378,6 +387,9 @@ func SearchUsers(keyword string, group string, role *int, status *int, tenantId 
 	}
 	if tenantId != nil {
 		query = query.Where("tenant_id = ?", *tenantId)
+	}
+	if viewerRole < common.RoleRootUser {
+		query = query.Where("role < ? OR id = ?", viewerRole, viewerId)
 	}
 
 	// 获取总数

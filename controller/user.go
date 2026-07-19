@@ -322,7 +322,7 @@ func resolveTenantFilter(c *gin.Context) *int {
 
 func GetAllUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
-	users, total, err := model.GetAllUsers(pageInfo, resolveTenantFilter(c))
+	users, total, err := model.GetAllUsers(pageInfo, resolveTenantFilter(c), c.GetInt("role"), c.GetInt("id"))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -351,7 +351,7 @@ func SearchUsers(c *gin.Context) {
 		}
 	}
 	pageInfo := common.GetPageQuery(c)
-	users, total, err := model.SearchUsers(keyword, group, role, status, resolveTenantFilter(c), pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	users, total, err := model.SearchUsers(keyword, group, role, status, resolveTenantFilter(c), pageInfo.GetStartIdx(), pageInfo.GetPageSize(), c.GetInt("role"), c.GetInt("id"))
 	if err != nil {
 		common.ApiError(c, err)
 		return
